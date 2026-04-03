@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 
 # ==================== КОНФИГ ====================
 BOT_TOKEN = "8789730707:AAFviuMjcPpnZeGIgY_KoduvUCaGngEowTA"
-ADMIN_ID = 8666834683  # ЗАМЕНИ НА СВОЙ ID
+ADMIN_ID = 6747528307  # ТВОЙ ID
 CHANNEL_LINK = "https://t.me/VanillaGram"
 
 # Бесплатная нейросеть
@@ -26,25 +26,19 @@ DB_PATH = "vanilla_gram.db"
 MEDIA_DIR = "media"
 os.makedirs(MEDIA_DIR, exist_ok=True)
 
-bot = telebot.TeleBot(BOT_TOKEN)
-bot.set_my_commands([
-    telebot.types.BotCommand("/start", "Главное меню"),
-    telebot.types.BotCommand("/addbot", "Добавить бота"),
-    telebot.types.BotCommand("/mybot", "Мои боты"),
-    telebot.types.BotCommand("/admin", "Админ панель")
-])
-
-# ==================== БАЗА ДАННЫХ С АВТОДОБАВЛЕНИЕМ КОЛОНОК ====================
+# ==================== БАЗА ДАННЫХ (СОЗДАЁТСЯ ПЕРВОЙ) ====================
+print("🔄 Создание базы данных...")
 conn = sqlite3.connect(DB_PATH, check_same_thread=False)
 c = conn.cursor()
 
-# Создаём таблицы, если их нет
+# Таблица пользователей
 c.execute('''CREATE TABLE IF NOT EXISTS users (
     user_id INTEGER PRIMARY KEY,
     username TEXT,
     reg_date TIMESTAMP
 )''')
 
+# Таблица ботов пользователей
 c.execute('''CREATE TABLE IF NOT EXISTS user_bots (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER,
@@ -65,26 +59,14 @@ c.execute('''CREATE TABLE IF NOT EXISTS user_bots (
     total_users INTEGER DEFAULT 0
 )''')
 
-# Добавляем недостающие колонки (если их нет)
-try:
-    c.execute("ALTER TABLE user_bots ADD COLUMN auto_reply_always INTEGER DEFAULT 0")
-except: pass
-try:
-    c.execute("ALTER TABLE user_bots ADD COLUMN auto_reply_text TEXT")
-except: pass
-try:
-    c.execute("ALTER TABLE user_bots ADD COLUMN ai_enabled INTEGER DEFAULT 0")
-except: pass
-try:
-    c.execute("ALTER TABLE user_bots ADD COLUMN ai_prompt TEXT")
-except: pass
-try:
-    c.execute("ALTER TABLE user_bots ADD COLUMN total_messages INTEGER DEFAULT 0")
-except: pass
-try:
-    c.execute("ALTER TABLE user_bots ADD COLUMN total_users INTEGER DEFAULT 0")
-except: pass
+# Добавляем недостающие колонки (для совместимости)
+for col in ['auto_reply_always', 'auto_reply_text', 'ai_enabled', 'ai_prompt', 'total_messages', 'total_users']:
+    try:
+        c.execute(f"ALTER TABLE user_bots ADD COLUMN {col}")
+    except:
+        pass
 
+# Операторы
 c.execute('''CREATE TABLE IF NOT EXISTS bot_operators (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     bot_token TEXT,
@@ -93,18 +75,21 @@ c.execute('''CREATE TABLE IF NOT EXISTS bot_operators (
     added_at TIMESTAMP
 )''')
 
+# Теги
 c.execute('''CREATE TABLE IF NOT EXISTS bot_tags (
     bot_token TEXT,
     tag_name TEXT,
     PRIMARY KEY (bot_token, tag_name)
 )''')
 
+# Подписчики рассылки
 c.execute('''CREATE TABLE IF NOT EXISTS newsletter_subs (
     bot_token TEXT,
     user_id INTEGER,
     PRIMARY KEY (bot_token, user_id)
 )''')
 
+# Платежи
 c.execute('''CREATE TABLE IF NOT EXISTS payments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER,
@@ -116,12 +101,14 @@ c.execute('''CREATE TABLE IF NOT EXISTS payments (
     created_at TIMESTAMP
 )''')
 
+# Состояния пользователей
 c.execute('''CREATE TABLE IF NOT EXISTS user_states (
     user_id INTEGER PRIMARY KEY,
     state TEXT,
     data TEXT
 )''')
 
+# Статистика диалогов
 c.execute('''CREATE TABLE IF NOT EXISTS bot_stats (
     bot_token TEXT,
     user_id INTEGER,
@@ -130,16 +117,36 @@ c.execute('''CREATE TABLE IF NOT EXISTS bot_stats (
     PRIMARY KEY (bot_token, user_id)
 )''')
 
+# Настройки конструктора
 c.execute('''CREATE TABLE IF NOT EXISTS constructor_settings (
     key TEXT PRIMARY KEY,
     value TEXT
 )''')
-c.execute("INSERT OR IGNORE INTO constructor_settings (key, value) VALUES ('welcome_text', '🌟 *ДОБРО ПОЖАЛОВАТЬ В VANILLAGRAM!* 🌟\n\nБесплатный конструктор Telegram ботов\n▫️ Безлимит операторов\n▫️ Теги\n▫️ Нейросеть (бесплатно)\n▫️ Рассылка\n▫️ Топ ботов\n\n*Выбери действие:*')")
+c.execute("INSERT OR IGNORE INTO constructor_settings (key, value) VALUES ('welcome_text', '🌟 *ДОБРО ПОЖАЛОВАТЬ В VANILLAGRAM!* 🌟\n\nБесплатный конструктор Telegram ботов\n▫️ Безлимит операторов\n▫️ Теги\n▫️ Нейросеть (бесплатно)\n▫️ Рассылка\n▫️ Топ ботов\n\nИспользуй команды ниже:')")
 conn.commit()
+print("✅ База данных создана")
+
+# ==================== СОЗДАНИЕ БОТА ====================
+print("🔄 Запуск бота...")
+bot = telebot.TeleBot(BOT_TOKEN)
+
+# Установка команд
+try:
+    bot.set_my_commands([
+        telebot.types.BotCommand("/start", "Главное меню"),
+        telebot.types.BotCommand("/addbot", "Добавить бота"),
+        telebot.types.BotCommand("/mybot", "Мои боты"),
+        telebot.types.BotCommand("/admin", "Админ панель"),
+        telebot.types.BotCommand("/top", "Топ ботов")
+    ])
+    print("✅ Команды установлены")
+except Exception as e:
+    print(f"⚠️ Не удалось установить команды (возможно блокировка API): {e}")
 
 # ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
 def save_state(user_id, state, data=None):
-    c.execute("INSERT OR REPLACE INTO user_states (user_id, state, data) VALUES (?, ?, ?)", (user_id, state, json.dumps(data) if data else None))
+    c.execute("INSERT OR REPLACE INTO user_states (user_id, state, data) VALUES (?, ?, ?)", 
+              (user_id, state, json.dumps(data) if data else None))
     conn.commit()
 
 def get_state(user_id):
@@ -174,20 +181,11 @@ def call_free_ai(user_message, system_prompt="Ты дружелюбный пом
     return None
 
 # ==================== КЛАВИАТУРЫ ====================
-def main_keyboard():
-    kb = InlineKeyboardMarkup(row_width=2)
-    kb.add(
-        InlineKeyboardButton("➕ ДОБАВИТЬ БОТА", callback_data="add_bot"),
-        InlineKeyboardButton("🤖 МОИ БОТЫ", callback_data="my_bots")
-    )
-    kb.add(
-        InlineKeyboardButton("🏆 ТОП БОТОВ", callback_data="top_bots"),
-        InlineKeyboardButton("📢 НАШ КАНАЛ", url=CHANNEL_LINK)
-    )
-    kb.add(
-        InlineKeyboardButton("✨ ПРЕМИУМ БОТ (350⭐)", callback_data="premium_bot"),
-        InlineKeyboardButton("📖 ПОМОЩЬ", callback_data="help")
-    )
+def main_reply_keyboard():
+    from telebot.types import ReplyKeyboardMarkup, KeyboardButton
+    kb = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    kb.add(KeyboardButton("/addbot"), KeyboardButton("/mybot"))
+    kb.add(KeyboardButton("/admin"), KeyboardButton("/top"))
     return kb
 
 def my_bots_keyboard(user_id, page=0):
@@ -247,15 +245,19 @@ def admin_keyboard():
 # ==================== ОБРАБОТЧИКИ КОМАНД ====================
 @bot.message_handler(commands=['start'])
 def start(message):
-    c.execute("INSERT OR IGNORE INTO users (user_id, username, reg_date) VALUES (?, ?, ?)", (message.from_user.id, message.from_user.username, datetime.now()))
+    c.execute("INSERT OR IGNORE INTO users (user_id, username, reg_date) VALUES (?, ?, ?)", 
+              (message.from_user.id, message.from_user.username, datetime.now()))
     conn.commit()
     photo = get_main_photo()
     c.execute("SELECT value FROM constructor_settings WHERE key='welcome_text'")
     welcome_text = c.fetchone()[0]
-    if photo:
-        bot.send_photo(message.chat.id, photo, caption=welcome_text, reply_markup=main_keyboard(), parse_mode='Markdown')
-    else:
-        bot.send_message(message.chat.id, welcome_text, reply_markup=main_keyboard(), parse_mode='Markdown')
+    try:
+        if photo:
+            bot.send_photo(message.chat.id, photo, caption=welcome_text, reply_markup=main_reply_keyboard(), parse_mode='Markdown')
+        else:
+            bot.send_message(message.chat.id, welcome_text, reply_markup=main_reply_keyboard(), parse_mode='Markdown')
+    except Exception as e:
+        print(f"Start error: {e}")
 
 @bot.message_handler(commands=['addbot'])
 def addbot_cmd(message):
@@ -279,14 +281,26 @@ def admin_cmd(message):
         return
     bot.send_message(message.chat.id, "🔐 *АДМИН ПАНЕЛЬ*", reply_markup=admin_keyboard(), parse_mode='Markdown')
 
-# ==================== ОСНОВНОЙ ОБРАБОТЧИК СООБЩЕНИЙ ====================
+@bot.message_handler(commands=['top'])
+def top_cmd(message):
+    c.execute("SELECT bot_username, total_messages, total_users FROM user_bots ORDER BY total_messages DESC LIMIT 10")
+    top = c.fetchall()
+    if not top:
+        text = "🏆 *ТОП БОТОВ*\n\nПока нет данных"
+    else:
+        lines = []
+        for i, (username, msgs, users) in enumerate(top, 1):
+            lines.append(f"{i}. @{username} — 📨 {msgs} сообщ., 👥 {users} польз.")
+        text = "🏆 *ТОП БОТОВ ПО АКТИВНОСТИ*\n\n" + "\n".join(lines)
+    bot.send_message(message.chat.id, text, parse_mode='Markdown')
+
+# ==================== ОБРАБОТЧИК СООБЩЕНИЙ (СОСТОЯНИЯ) ====================
 @bot.message_handler(func=lambda m: True)
 def handle_all_messages(message):
     user_id = message.from_user.id
     state, data = get_state(user_id)
     text = message.text.strip()
 
-    # Состояние ожидания токена (ДОЛЖНО РАБОТАТЬ)
     if state == "waiting_token":
         token = text
         try:
@@ -300,13 +314,11 @@ def handle_all_messages(message):
             conn.commit()
             clear_state(user_id)
             bot.send_message(message.chat.id, f"✅ *Бот @{me.username} успешно создан!*\n\nУправляй им через /mybot", parse_mode='Markdown')
-            # Запускаем бота пользователя в фоне
             threading.Thread(target=run_user_bot, args=(token, me.username, user_id), daemon=True).start()
         except Exception as e:
             bot.send_message(message.chat.id, f"❌ Ошибка: {str(e)}")
         return
 
-    # Остальные состояния (приветствие, операторы, теги, подписка, автоответ)
     if state == "waiting_welcome":
         c.execute("UPDATE user_bots SET welcome_text=? WHERE bot_token=?", (text, data["bot_token"]))
         conn.commit()
@@ -314,14 +326,18 @@ def handle_all_messages(message):
         bot.send_message(message.chat.id, "✅ Приветствие обновлено!")
         return
     if state == "waiting_photo":
-        bot.reply_to(message, "❌ Отправьте фото, а не текст")
+        bot.reply_to(message, "❌ Отправь фото, а не текст")
         return
     if state == "waiting_op_id":
         try:
             op_id = int(text)
-            c.execute("INSERT OR IGNORE INTO bot_operators (bot_token, operator_id, added_at) VALUES (?, ?, ?)", (data["bot_token"], op_id, datetime.now()))
+            c.execute("INSERT OR IGNORE INTO bot_operators (bot_token, operator_id, added_at) VALUES (?, ?, ?)", 
+                      (data["bot_token"], op_id, datetime.now()))
             conn.commit()
-            bot.send_message(op_id, "🎉 Вы стали оператором бота!")
+            try:
+                bot.send_message(op_id, "🎉 Вы стали оператором бота!")
+            except:
+                pass
             bot.reply_to(message, "✅ Оператор добавлен")
         except:
             bot.reply_to(message, "❌ Введите числовой ID")
@@ -407,49 +423,17 @@ def callback_query(call):
     chat_id = call.message.chat.id
     msg_id = call.message.message_id
 
-    # Глобальные кнопки
     if data == "back_start":
         start(call.message)
         bot.delete_message(chat_id, msg_id)
         return
-    if data == "add_bot":
-        addbot_cmd(call.message)
-        return
-    if data == "my_bots":
-        mybot_cmd(call.message)
-        return
-    if data == "help":
-        text = "📖 *ПОМОЩЬ*\n/addbot - добавить бота\n/mybot - мои боты\n/admin - админка\nБесплатная нейросеть для ответов! Включи в настройках бота."
-        kb = InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 НАЗАД", callback_data="back_start"))
-        bot.edit_message_text(text, chat_id, msg_id, reply_markup=kb, parse_mode='Markdown')
-        return
-    if data == "top_bots":
-        # Топ ботов по количеству сообщений
-        c.execute("SELECT bot_username, total_messages, total_users FROM user_bots ORDER BY total_messages DESC LIMIT 10")
-        top = c.fetchall()
-        if not top:
-            text = "🏆 *ТОП БОТОВ*\n\nПока нет данных"
-        else:
-            lines = []
-            for i, (username, msgs, users) in enumerate(top, 1):
-                lines.append(f"{i}. @{username} — 📨 {msgs} сообщ., 👥 {users} польз.")
-            text = "🏆 *ТОП БОТОВ ПО АКТИВНОСТИ*\n\n" + "\n".join(lines)
-        kb = InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 НАЗАД", callback_data="back_start"))
-        bot.edit_message_text(text, chat_id, msg_id, reply_markup=kb, parse_mode='Markdown')
-        return
-    if data == "premium_bot":
-        save_state(user_id, "waiting_premium_desc")
-        bot.edit_message_text("✨ *Опиши бота и укажи токен*\nПример: 'Бот для магазина, токен: 123456:ABCdef'", chat_id, msg_id, parse_mode='Markdown')
-        return
 
-    # Пагинация mybots
     if data.startswith("mybots_page_"):
         page = int(data.split("_")[-1])
         kb, total, _ = my_bots_keyboard(user_id, page)
         bot.edit_message_text(f"🎮 *ТВОИ БОТЫ* (стр. {page+1}/{(total+4)//5})", chat_id, msg_id, reply_markup=kb, parse_mode='Markdown')
         return
 
-    # Админские кнопки
     if user_id == ADMIN_ID:
         if data == "admin_stats":
             c.execute("SELECT COUNT(*) FROM users")
@@ -473,7 +457,6 @@ def callback_query(call):
             bot.edit_message_text("Введи ID или username бота", chat_id, msg_id)
             return
 
-    # Редактирование бота
     if data.startswith("edit_"):
         bot_token = data[5:]
         res = bot_settings_keyboard(bot_token)
@@ -481,7 +464,6 @@ def callback_query(call):
             kb, status, username = res
             bot.edit_message_text(f"⚙️ *@{username}*\n{status}", chat_id, msg_id, reply_markup=kb, parse_mode='Markdown')
         return
-
     if data.startswith("welcome_"):
         bot_token = data[8:]
         save_state(user_id, "waiting_welcome", {"bot_token": bot_token})
@@ -610,12 +592,6 @@ def callback_query(call):
         bot.send_invoice(chat_id, title="Удаление копирайта", description="Убрать надпись о создателе", invoice_payload=payment_id, provider_token="", currency="XTR", prices=[LabeledPrice(label="Удаление", amount=PRICE_COPYRIGHT)], start_parameter="remove_copyright")
         return
 
-    # Премиум бот
-    if data.startswith("pay_premium_"):
-        payment_id = data[11:]
-        # Здесь можно добавить логику оплаты премиум бота
-        pass
-
     bot.answer_callback_query(call.id, "Функция в разработке")
 
 # ==================== ПЛАТЕЖИ ====================
@@ -636,7 +612,7 @@ def on_successful_payment(message):
             bot.send_message(message.chat.id, "✅ Копирайт удалён!")
         conn.commit()
 
-# ==================== ЗАПУСК БОТА ПОЛЬЗОВАТЕЛЯ (С НЕЙРОСЕТЬЮ И СТАТИСТИКОЙ) ====================
+# ==================== ЗАПУСК БОТА ПОЛЬЗОВАТЕЛЯ ====================
 def run_user_bot(token, username, owner_id):
     def worker():
         ub = telebot.TeleBot(token)
@@ -680,16 +656,13 @@ def run_user_bot(token, username, owner_id):
                 ub.answer_callback_query(c.id, "❌ Ошибка", show_alert=True)
         @ub.message_handler(func=lambda m: True)
         def handle_msg(m):
-            # Обновляем статистику
             c.execute("INSERT OR IGNORE INTO bot_stats (bot_token, user_id, messages_count, last_activity) VALUES (?, ?, 0, ?)", (token, m.from_user.id, datetime.now()))
             c.execute("UPDATE bot_stats SET messages_count = messages_count + 1, last_activity = ? WHERE bot_token=? AND user_id=?", (datetime.now(), token, m.from_user.id))
             c.execute("UPDATE user_bots SET total_messages = total_messages + 1 WHERE bot_token=?", (token,))
-            # Уникальные пользователи
             c.execute("SELECT COUNT(DISTINCT user_id) FROM bot_stats WHERE bot_token=?", (token,))
             unique_users = c.fetchone()[0]
             c.execute("UPDATE user_bots SET total_users = ? WHERE bot_token=?", (unique_users, token))
             conn.commit()
-
             c.execute("SELECT auto_reply_always, auto_reply_text, ai_enabled, ai_prompt FROM user_bots WHERE bot_token=?", (token,))
             row = c.fetchone()
             if row:
@@ -720,4 +693,17 @@ if __name__ == "__main__":
     print("🤖 VanillaGram запущен")
     print(f"Админ ID: {ADMIN_ID}")
     print(f"Папка media: {MEDIA_DIR}")
-    bot.infinity_polling(timeout=60)
+    print("=" * 50)
+    print("Главное меню — через команды /addbot, /mybot, /admin, /top")
+    print("Все настройки — через инлайн-кнопки")
+    print("=" * 50)
+    print("Если бот не отвечает, возможно блокировка Telegram API.")
+    print("Включи VPN и перезапусти бота.")
+    print("=" * 50)
+    
+    while True:
+        try:
+            bot.infinity_polling(timeout=60)
+        except Exception as e:
+            print(f"Ошибка: {e}. Переподключение через 10 секунд...")
+            time.sleep(10)
